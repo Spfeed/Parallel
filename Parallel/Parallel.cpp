@@ -1,125 +1,168 @@
 ﻿#include <omp.h>
 #include <iostream>
 #include <chrono>
+#include <fstream>
 using namespace std;
 
+//инициализация матрицы, векторов
 
-using namespace std;
+void ItemsInit(double** Matrix, double* Vector, double* Result, double* RowsRes, double* ColumnsRes, double* BlocksRes, int size) {
 
-double func(double x) {
-	return 1.0 / (16 - sin(pow(x, 4)* sin(pow(x, 4))));
+	for (int i = 0; i < size; i++) {
+		for (int j = 0; j < size; j++) {
+			Matrix[i][j] = i + j + 2;
+		}
+	}
+
+	for (int i = 0; i < size; i++) {
+		Vector[i] = i + 1;
+	}
+
+	for (int i = 0; i < size; i++){
+		Result[i] = 0;
+		RowsRes[i] = 0;
+		ColumnsRes[i] = 0;
+		BlocksRes[i] = 0;
+	}
+}
+
+//Стандартное умножение матрицы на вектор
+
+void SerialProduct(double** Matrix, double* Vector, double* Result, int size) {
+	for (int i = 0; i < size; i++) {
+		for (int j = 0; j < size; j++) {
+			Result[i] += Matrix[i][j] * Vector[j];
+		}
+	}
+}
+
+//Параллельное умножение по строкам
+
+void ParallelProductRows(double** Matrix, double* Vector, double* RowsRes, int size) {
+	int i, j;
+#pragma omp parallel for private (j)
+	for (i = 0; i < size; i++) {
+		for (j = 0; j < size; j++) {
+			RowsRes[i] += Matrix[i][j] * Vector[j];
+		}
+	}
+}
+
+//Параллельное умножение по столбцам
+
+void ParallelProductColumns(double** Matrix, double* Vector, double* ColumnsRes, int size) {
+	double IterSum;
+	for (int i = 0; i < size; i++) {
+		IterSum = 0;
+#pragma omp parallel for reduction (+:IterSum)
+		for (int j = 0; j < size; j++) {
+			IterSum += Matrix[j][i] * Vector[j];
+		}
+		ColumnsRes[i] = IterSum;
+	}
+}
+
+//Параллельное умножение по блокам
+
+void ParallelProductBlocks(double** pMatrix, double* pVector, double* blocksResult, int size) {
+	int ThreadID;
+	int GridThreadsNum = 4;
+	int GridSize = int(sqrt(double(GridThreadsNum)));
+	int BlockSize = size / GridSize;
+
+#pragma omp parallel for private(ThreadID)
+	for (int l = 0; l < 4; l++)
+	{
+		ThreadID = omp_get_thread_num();
+		double* pThreadResult = new double[BlockSize];
+		for (int i = 0; i < BlockSize; i++)
+			pThreadResult[i] = 0;
+
+		int i_start = (int(ThreadID / GridSize)) * BlockSize;
+		int j_start = (ThreadID % GridSize) * BlockSize;
+
+		for (int i = 0; i < BlockSize; i++) {
+			for (int j = 0; j < BlockSize; j++)
+				pThreadResult[i] += pMatrix[i + i_start][j + j_start] * pVector[j + j_start];
+		}
+
+#pragma omp critical
+		for (int i = 0; i < BlockSize; i++)
+			blocksResult[i + i_start] += pThreadResult[i];
+
+		delete[] pThreadResult;
+	}
+}
+
+void ProcessPrint(double* Result, int size) {
+	cout << "Result [";
+	for (int i = 0; i < size - 1; i++) {
+		cout << Result[i] << ", ";
+	}
+	cout << Result[size - 1] << "]" << endl;
+}
+
+void ProcessTerminate(double** pMatrix, double* pVector, double* Result, double* rowsResult,
+	double* columnsResult, double* blocksResult, int size) {
+	for (int i = 0; i < size; i++) {
+		delete[] pMatrix[i];
+	}
+	delete[] pMatrix;
+	delete[] pVector;
+	delete[] Result;
+	delete[] rowsResult;
+	delete[] columnsResult;
+	delete[] blocksResult;
 }
 
 int main()
 {
 	setlocale(LC_CTYPE, "Russian");
-	//Входные данные
-	double a = -1, b = 1, num_threads, num_threads1, single, parallel, parallel1;
-	int N = 1, i;
-	double eps = 1.0E-8;
-	cout << "Входные данные: " << endl;
-	cout << " Функция f(x) = 1 / 16-x^4" << endl;
-	cout << "Нижний предел интегрирования a = " << a << endl;
-	cout << "Верзний предел интегрирования b = " << b << endl;
-	cout << "Точность вычислений eps = " << eps << endl;
-	double summa_2N = 0;
-	double summa_N;
+	int size;
+	cout << "Введите размер матрицы";
+	cin >> size;
 
-	//последовательный алгоритм
+	double** Matrix = new double * [size];
+	double* Vector = new double[size];
+	double* Result = new double[size];
+	double* RowsRes = new double[size];
+	double* ColumnsRes = new double[size];
+	double* BlocksRes = new double[size];
+
+	for (int i = 0; i < size; i++) {
+		Matrix[i] = new double[size];
+	}
+
+	ItemsInit(Matrix, Vector, Result, RowsRes, ColumnsRes, BlocksRes, size);
 
 	auto start_time = chrono::high_resolution_clock::now();
-	do {
-		summa_N = summa_2N;
-		summa_2N = func(a);
-		double h = (b - a) / N;
-		for (i = 1; i < N; i++) {
-			summa_2N += func(a + i * h) * 2;
-		}
-		summa_2N += func(b);
-		summa_2N *= h / 2;
-		N *= 2;
-	} while (
-		(fabs((summa_N - summa_2N) / 3)) > eps
-		);
+	SerialProduct(Matrix, Vector, Result, size);
 	auto end_time = chrono::high_resolution_clock::now();
-	single = chrono::duration_cast<chrono::microseconds>(end_time - start_time).count();
-	cout << "Время работы последовательного алгоритма: " << single/pow(10,6) << " секунд" << endl;
+	cout<<"Время работы последовательного алгоритма: "<<chrono::duration_cast<chrono::nanoseconds>(end_time - start_time).count() / pow(10, 9) << " сек" << endl;
+	cout << "Вектор после умножения на матрицу:" << endl;
+	//ProcessPrint(Result, size);
 
-	//параллельный алгоритм
-	summa_2N = 0;
-	N = 1;
 	start_time = chrono::high_resolution_clock::now();
-	do {
-		summa_N = summa_2N;
-		summa_2N = func(a);
-		double h = (b - a) / N;
-#pragma omp parallel shared(a,h,N) private(i) reduction(+:summa_2N)
-		{
-#pragma omp sections nowait
-			{
-#pragma omp section 
-				for (i = 1; i < N / 4; i++) {
-					summa_2N += func(a + i * h) * 2;
-				}
-#pragma omp section
-				for (i = N / 4; i < N / 2; i++) {
-					summa_2N += func(a + i * h) * 2;
-				}
-#pragma omp section
-				for (i = N / 2; i < N * 3 / 4; i++) {
-					summa_2N += func(a + i * h) * 2;
-				}
-#pragma omp section
-				for (i = N * 3 / 4; i < N; i++) {
-					summa_2N += func(a + i * h) * 2;
-				}
-			}
-			num_threads = omp_get_num_threads();
-		}
-		summa_2N += func(b);
-		summa_2N *= h / 2;
-		N *= 2;
-	} while (
-		(fabs((summa_N - summa_2N) / 3)) > eps);
-
+	ParallelProductRows(Matrix, Vector, RowsRes, size);
 	end_time = chrono::high_resolution_clock::now();
-	parallel = chrono::duration_cast<chrono::microseconds>(end_time - start_time).count();
-	cout << "Время работы параллельного алгоритма с секциями: " << parallel/pow(10,6) << " секунд" << endl;
+	cout << "Время работы алгоритма умножения на строки: " << chrono::duration_cast<chrono::nanoseconds>(end_time - start_time).count()/pow(10,9) << " сек" << endl;
+	cout << "Вектор после умножения на матрицу:" << endl;
+	//ProcessPrint(Result, size);
 
-
-	//второй способ
-
-	summa_2N = 0;
-	N = 1;
 	start_time = chrono::high_resolution_clock::now();
-
-	do {
-		summa_N = summa_2N;
-		summa_2N = func(a);
-		double h = (b - a) / N;
-#pragma omp parallel for default(shared) private(i) reduction(+:summa_2N)
-		for (i = 1; i < N; i++) {
-			summa_2N += func(a + i * h) * 2;
-			num_threads1 = omp_get_num_threads();
-		}
-
-
-		summa_2N += func(b);
-		summa_2N *= h / 2;
-		N *= 2;
-	} while (
-		(fabs((summa_N - summa_2N) / 3)) > eps
-		);
-
+	ParallelProductColumns(Matrix, Vector, ColumnsRes, size);
 	end_time = chrono::high_resolution_clock::now();
-	parallel1 = chrono::duration_cast<chrono::microseconds>(end_time - start_time).count();
-	cout << "Время работы параллельного алгоритма цикла: " << parallel1/pow(10,6) << " секунд" << endl;
+	cout << "Время работы алгоритма умножения на столбцы: " << chrono::duration_cast<chrono::nanoseconds>(end_time - start_time).count() / pow(10, 9) << " сек" << endl;
+	cout << "Вектор после умножения на матрицу:" << endl;
+	//ProcessPrint(Result, size);
 
-	cout << "Ускорение первого алгоритма: " << single / parallel << endl;
-	cout << "Эффективность первого алгоритма: " << (single / parallel) / num_threads << endl;
+	start_time = chrono::high_resolution_clock::now();
+	ParallelProductBlocks(Matrix, Vector, BlocksRes, size);
+	end_time = chrono::high_resolution_clock::now();
+	cout << "Время работы алгоритма умножения на блоки: " << chrono::duration_cast<chrono::nanoseconds>(end_time - start_time).count() / pow(10, 9) << " сек" << endl;
+	cout << "Вектор после умножения на матрицу:" << endl;
+	//ProcessPrint(Result, size);
 
-	cout << "Ускорение второго алгоритма: " << single / parallel1 << endl;
-	cout << "Эффективность второго алгоритма: " << (single / parallel1) / num_threads1 << endl;
 
-	cout << "Результат вычислений: " << summa_2N;
+
 }
