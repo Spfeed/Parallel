@@ -6,7 +6,7 @@ using namespace std;
 
 //инициализация матрицы, векторов
 
-void ItemsInit(double** Matrix, double* Vector, double* Result, double* RowsRes, double* ColumnsRes, double* BlocksRes, int size) {
+void ItemsInit(double** Matrix, double** Matrix2, double** Result, double** ParallelRes, double**BlockRes ,int size) {
 
 	for (int i = 0; i < size; i++) {
 		for (int j = 0; j < size; j++) {
@@ -15,103 +15,101 @@ void ItemsInit(double** Matrix, double* Vector, double* Result, double* RowsRes,
 	}
 
 	for (int i = 0; i < size; i++) {
-		Vector[i] = i + 1;
+		for (int j = 0; j < size; j++) {
+			Matrix2[i][j] = i + 1;
+		}
 	}
 
 	for (int i = 0; i < size; i++){
-		Result[i] = 0;
-		RowsRes[i] = 0;
-		ColumnsRes[i] = 0;
-		BlocksRes[i] = 0;
+		for (int j = 0; j < size; j++) {
+			Result[i][j] = 0;
+			ParallelRes[i][j] = 0;
+			BlockRes[i][j] = 0;
+		}
 	}
+
+	
 }
 
 //Стандартное умножение матрицы на вектор
 
-void SerialProduct(double** Matrix, double* Vector, double* Result, int size) {
+void SerialProduct(double** Matrix, double** Matrix2, double** Result, int size) {
 	for (int i = 0; i < size; i++) {
 		for (int j = 0; j < size; j++) {
-			Result[i] += Matrix[i][j] * Vector[j];
+			for (int k = 0; k < size; k++) {
+				Result[i][j] += Matrix[i][k] * Matrix2[k][j];
+			}
 		}
 	}
 }
 
 //Параллельное умножение по строкам
 
-void ParallelProductRows(double** Matrix, double* Vector, double* RowsRes, int size) {
-	int i, j;
-#pragma omp parallel for private (j)
-	for (i = 0; i < size; i++) {
-		for (j = 0; j < size; j++) {
-			RowsRes[i] += Matrix[i][j] * Vector[j];
-		}
-	}
-}
-
-//Параллельное умножение по столбцам
-
-void ParallelProductColumns(double** Matrix, double* Vector, double* ColumnsRes, int size) {
-	double IterSum;
+void ParallelProduct(double** Matrix, double** Matrix2, double** ParallelRes, int size) {
+	int k;
+#pragma omp parallel for private (k)
 	for (int i = 0; i < size; i++) {
-		IterSum = 0;
-#pragma omp parallel for reduction (+:IterSum)
 		for (int j = 0; j < size; j++) {
-			IterSum += Matrix[j][i] * Vector[j];
+			for (int k = 0; k < size; k++) {
+				ParallelRes[i][j] += Matrix[i][k] * Matrix2[k][j];
+			}
 		}
-		ColumnsRes[i] = IterSum;
 	}
 }
 
 //Параллельное умножение по блокам
 
-void ParallelProductBlocks(double** pMatrix, double* pVector, double* blocksResult, int size) {
-	int ThreadID;
+void ParallelProductBlocks(double** pMatrix, double** Matrix2, double** BlocksRes, int size) {
 	int GridThreadsNum = 4;
 	int GridSize = int(sqrt(double(GridThreadsNum)));
 	int BlockSize = size / GridSize;
+	omp_set_num_threads(GridThreadsNum);
+	int ThreadID;
 
 #pragma omp parallel for private(ThreadID)
 	for (int l = 0; l < 4; l++)
 	{
 		ThreadID = omp_get_thread_num();
-		double* pThreadResult = new double[BlockSize];
-		for (int i = 0; i < BlockSize; i++)
-			pThreadResult[i] = 0;
-
+		ThreadID = omp_get_thread_num();
 		int i_start = (int(ThreadID / GridSize)) * BlockSize;
 		int j_start = (ThreadID % GridSize) * BlockSize;
 
-		for (int i = 0; i < BlockSize; i++) {
-			for (int j = 0; j < BlockSize; j++)
-				pThreadResult[i] += pMatrix[i + i_start][j + j_start] * pVector[j + j_start];
+		for (int i = i_start; i < i_start + BlockSize; ++i) {
+			for (int j = j_start; j < j_start + BlockSize; ++j) {
+				double sum = 0.0;
+				for (int k = 0; k < size; ++k) {
+					sum += pMatrix[i][k] * Matrix2[k][j];
+				}
+#pragma omp atomic
+				BlocksRes[i][j] += sum;
+			}
 		}
-
-#pragma omp critical
-		for (int i = 0; i < BlockSize; i++)
-			blocksResult[i + i_start] += pThreadResult[i];
-
-		delete[] pThreadResult;
 	}
 }
 
-void ProcessPrint(double* Result, int size) {
-	cout << "Result [";
-	for (int i = 0; i < size - 1; i++) {
-		cout << Result[i] << ", ";
+void ProcessPrint(double** Result, int size) {
+	cout << "Result:" << endl;
+	for (int i = 0; i < size; i++) {
+		for (int j = 0; j < size; j++) {
+			cout << Result[i][j] << " ";
+		}
+		cout << endl;
 	}
-	cout << Result[size - 1] << "]" << endl;
 }
 
-void ProcessTerminate(double** pMatrix, double* pVector, double* Result, double* rowsResult,
-	double* columnsResult, double* blocksResult, int size) {
+void ProcessTerminate(double** pMatrix, double** pMatrix2, double** Result, double** paralResult,
+	double** blocksResult, int size) {
 	for (int i = 0; i < size; i++) {
 		delete[] pMatrix[i];
+		delete[] pMatrix2[i];
+		delete[] Result[i];
+		delete[] paralResult[i];
+		delete[] blocksResult[i];
 	}
 	delete[] pMatrix;
-	delete[] pVector;
+	delete[] pMatrix2;
 	delete[] Result;
-	delete[] rowsResult;
-	delete[] columnsResult;
+	delete[] paralResult;
 	delete[] blocksResult;
 }
 
@@ -123,44 +121,41 @@ int main()
 	cin >> size;
 
 	double** Matrix = new double * [size];
-	double* Vector = new double[size];
-	double* Result = new double[size];
-	double* RowsRes = new double[size];
-	double* ColumnsRes = new double[size];
-	double* BlocksRes = new double[size];
+	double** Matrix2 = new double * [size];
+	double** Result = new double * [size];
+	double** ParallelRes = new double * [size];
+	double** BlocksRes = new double * [size];
 
 	for (int i = 0; i < size; i++) {
 		Matrix[i] = new double[size];
+		Matrix2[i] = new double[size];
+		Result[i] = new double[size];
+		ParallelRes[i] = new double[size];
+		BlocksRes[i] = new double[size];
 	}
 
-	ItemsInit(Matrix, Vector, Result, RowsRes, ColumnsRes, BlocksRes, size);
+	ItemsInit(Matrix, Matrix2, Result, ParallelRes, BlocksRes, size);
 
 	auto start_time = chrono::high_resolution_clock::now();
-	SerialProduct(Matrix, Vector, Result, size);
+	SerialProduct(Matrix, Matrix2, Result, size);
 	auto end_time = chrono::high_resolution_clock::now();
 	cout<<"Время работы последовательного алгоритма: "<<chrono::duration_cast<chrono::nanoseconds>(end_time - start_time).count() / pow(10, 9) << " сек" << endl;
-	cout << "Вектор после умножения на матрицу:" << endl;
+	cout << "Матрицы после умножения: " << endl;
 	//ProcessPrint(Result, size);
 
 	start_time = chrono::high_resolution_clock::now();
-	ParallelProductRows(Matrix, Vector, RowsRes, size);
+	ParallelProduct(Matrix, Matrix2, ParallelRes, size);
 	end_time = chrono::high_resolution_clock::now();
-	cout << "Время работы алгоритма умножения на строки: " << chrono::duration_cast<chrono::nanoseconds>(end_time - start_time).count()/pow(10,9) << " сек" << endl;
-	cout << "Вектор после умножения на матрицу:" << endl;
+	cout << "Время работы алгоритма параллельного умножения: " << chrono::duration_cast<chrono::nanoseconds>(end_time - start_time).count()/pow(10,9) << " сек" << endl;
+	cout << "Матрицы после умножения: " << endl;
 	//ProcessPrint(Result, size);
 
-	start_time = chrono::high_resolution_clock::now();
-	ParallelProductColumns(Matrix, Vector, ColumnsRes, size);
-	end_time = chrono::high_resolution_clock::now();
-	cout << "Время работы алгоритма умножения на столбцы: " << chrono::duration_cast<chrono::nanoseconds>(end_time - start_time).count() / pow(10, 9) << " сек" << endl;
-	cout << "Вектор после умножения на матрицу:" << endl;
-	//ProcessPrint(Result, size);
 
 	start_time = chrono::high_resolution_clock::now();
-	ParallelProductBlocks(Matrix, Vector, BlocksRes, size);
+	ParallelProductBlocks(Matrix, Matrix2, BlocksRes, size);
 	end_time = chrono::high_resolution_clock::now();
-	cout << "Время работы алгоритма умножения на блоки: " << chrono::duration_cast<chrono::nanoseconds>(end_time - start_time).count() / pow(10, 9) << " сек" << endl;
-	cout << "Вектор после умножения на матрицу:" << endl;
+	cout << "Время работы алгоритма умножения по блокам: " << chrono::duration_cast<chrono::nanoseconds>(end_time - start_time).count() / pow(10, 9) << " сек" << endl;
+	cout << "Матрицы после умножения: " << endl;
 	//ProcessPrint(Result, size);
 
 
