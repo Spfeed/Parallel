@@ -1,38 +1,48 @@
 ﻿#include <iostream>
-#include <vector>
+#include <cmath>
 #include <omp.h>
 
 using namespace std;
 
-void fillMatrix(vector<vector<int>>& matrix, int k, int n) {
-#pragma omp parallel for collapse(2)
-    for (int i = 0; i < k; i++) {
-        for (int j = 0; j < n; j++) {
-            int value = min(min(i, j), min(k - 1 - i, n - 1 - j)) + 1;//значение вычисляется как расстояние до границы матрицы+1
-            matrix[i][j] = value;
-        }
+// Функция, для которой вычисляется интеграл
+double f(double x) {
+    return sin(x);
+}
+
+// Функция для вычисления интеграла методом Симпсона с использованием OpenMP
+double integrateSimpson(double a, double b, int n) {
+    double h = (b - a) / n;
+    double sum = f(a) + f(b);
+
+#pragma omp parallel for reduction(+:sum)
+    for (int i = 1; i < n; i++) {
+        double x = a + i * h;
+        sum += (i % 2 == 0) ? 2 * f(x) : 4 * f(x);
     }
+
+    return h / 3 * sum;
 }
 
 int main() {
     setlocale(LC_ALL, "ru");
-    int k, n;
-    cout << "Введите размерность матрицы k, n: ";
-    cin >> k >> n;
 
-    // Создание матрицы
-    vector<vector<int>> matrix(k, vector<int>(n, 0));
+    double a, b;
+    int n;
 
-    // Заполнение матрицы
-    fillMatrix(matrix, k, n);
+    cout << "Введите нижний предел интегрирования (a): ";
+    cin >> a;
 
-    // Вывод матрицы
-    for (int i = 0; i < k; i++) {
-        for (int j = 0; j < n; j++) {
-            cout << matrix[i][j] << " ";
-        }
-        cout << endl;
-    }
+    cout << "Введите верхний предел интегрирования (b): ";
+    cin >> b;
+
+    cout << "Введите количество разбиений (n): ";
+    cin >> n;
+
+    // Вычисление интеграла
+    double result = integrateSimpson(a, b, n);
+
+    // Вывод результата
+    cout << "Значение интеграла: " << result << endl;
 
     return 0;
 }
