@@ -1,55 +1,38 @@
 ﻿#include <iostream>
+#include <vector>
 #include <omp.h>
 
 using namespace std;
 
+void fillMatrix(vector<vector<int>>& matrix, int k, int n) {
+#pragma omp parallel for collapse(2)
+    for (int i = 0; i < k; i++) {
+        for (int j = 0; j < n; j++) {
+            int value = min(min(i, j), min(k - 1 - i, n - 1 - j)) + 1;//значение вычисляется как расстояние до границы матрицы+1
+            matrix[i][j] = value;
+        }
+    }
+}
+
 int main() {
     setlocale(LC_ALL, "ru");
+    int k, n;
+    cout << "Введите размерность матрицы k, n: ";
+    cin >> k >> n;
 
-    int m, n;
-    cout << "Введите размерность матрицы: m, n" << endl;
-    cin >> m >> n;
+    // Создание матрицы
+    vector<vector<int>> matrix(k, vector<int>(n, 0));
 
-    int** A = new int* [m];
+    // Заполнение матрицы
+    fillMatrix(matrix, k, n);
 
-    for (int i = 0; i < m; i++) {
-        A[i] = new int[n];
-    }
-
-    for (int i = 0; i < m; i++) {
+    // Вывод матрицы
+    for (int i = 0; i < k; i++) {
         for (int j = 0; j < n; j++) {
-            A[i][j] = i + j + 1;
-            cout << A[i][j] << " ";
+            cout << matrix[i][j] << " ";
         }
         cout << endl;
     }
-
-    int sum = 0;
-
-#pragma omp parallel num_threads(m)
-    {
-        int thread_id = omp_get_thread_num(); // Получаем номер текущей нити
-
-        // Суммируем элементы строки, если номер строки кратен номеру нити
-#pragma omp for reduction(+:sum)
-        for (int i = 0; i < m; i++) {
-            cout << i + 1 << " " << thread_id + 1 << endl;
-            if ((i + 1) % (thread_id + 1) == 0) {
-                for (int j = 0; j < n; j++) {
-                    sum += A[i][j];
-                }
-            }
-        }
-    }
-
-    // Вывод результата
-    std::cout << "Сумма элементов строк, кратных номеру нити: " << sum << std::endl;
-
-    // Очистка памяти
-    for (int i = 0; i < m; i++) {
-        delete[] A[i];
-    }
-    delete[] A;
 
     return 0;
 }
