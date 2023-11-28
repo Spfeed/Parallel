@@ -1,0 +1,5 @@
+Total time for ykobiParal: 1.94169 seconds
+x={it=59
+s=8.11137e-09
+eps=1e-08
+itmax=10000

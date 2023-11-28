@@ -1,0 +1,5 @@
+Total time for zeidelParal: 0.763756 seconds
+x={it=22
+s=3.53796e-09
+eps=1e-08
+itmax=10000

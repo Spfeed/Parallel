@@ -1,0 +1,5 @@
+Total time for zeidel: 3.23934 seconds
+x={it=14
+s=1.45928e-09
+eps=1e-08
+itmax=10000
