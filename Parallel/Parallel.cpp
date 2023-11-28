@@ -6,18 +6,18 @@ using namespace std;
 int main() {
     setlocale(LC_ALL, "ru");
 
-    int n, m;
-    cout << "Введите размерность матрицы: n, m" << endl;
-    cin >> n >> m;
+    int m, n;
+    cout << "Введите размерность матрицы: m, n" << endl;
+    cin >> m >> n;
 
-    int** A = new int* [n];
+    int** A = new int* [m];
 
-    for (int i = 0; i < n; i++) {
-        A[i] = new int[m];
+    for (int i = 0; i < m; i++) {
+        A[i] = new int[n];
     }
 
-    for (int i = 0; i < n; i++) {
-        for (int j = 0; j < m; j++) {
+    for (int i = 0; i < m; i++) {
+        for (int j = 0; j < n; j++) {
             A[i][j] = i + j + 1;
             cout << A[i][j] << " ";
         }
@@ -29,30 +29,24 @@ int main() {
 #pragma omp parallel num_threads(m)
     {
         int thread_id = omp_get_thread_num(); // Получаем номер текущей нити
-        int i = thread_id + 1; // Номер нити (индексация начинается с 0)
 
-        // Локальная переменная для хранения суммы текущей нити
-        int local_sum = 0;
-
-        // Проверка, что столбец кратен номеру нити
-        if (i <= m && m % i == 0) {
-            // Суммируем элементы столбца
-#pragma omp parallel for reduction(+:local_sum)
-            for (int j = 0; j < n; ++j) {
-                local_sum += A[j][i - 1];
+        // Суммируем элементы строки, если номер строки кратен номеру нити
+#pragma omp for reduction(+:sum)
+        for (int i = 0; i < m; i++) {
+            cout << i + 1 << " " << thread_id + 1 << endl;
+            if ((i + 1) % (thread_id + 1) == 0) {
+                for (int j = 0; j < n; j++) {
+                    sum += A[i][j];
+                }
             }
         }
-
-        // Критическая секция для обновления общей суммы
-#pragma omp critical
-        sum += local_sum;
     }
 
     // Вывод результата
-    std::cout << "Сумма элементов столбцов, кратных номеру нити: " << sum << std::endl;
+    std::cout << "Сумма элементов строк, кратных номеру нити: " << sum << std::endl;
 
     // Очистка памяти
-    for (int i = 0; i < n; i++) {
+    for (int i = 0; i < m; i++) {
         delete[] A[i];
     }
     delete[] A;
