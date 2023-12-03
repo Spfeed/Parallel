@@ -44,18 +44,16 @@ void printVector(const Vector& vec) {
 Matrix calculateExpression(const Vector& b, const Matrix& A, const Matrix& C) {
     int rows_A = A.size();
     int cols_A = A[0].size();
-    int rows_b = b.size();
 
-    Matrix result(rows_b, Vector(rows_b, 0.0));
+    Matrix result(rows_A, Vector(rows_A, 0.0));
 
 #pragma omp parallel for
-    for (int i = 0; i < rows_b; ++i) {
-        for (int j = 0; j < rows_b; ++j) {
-            double sum = 0.0;
+    for (int i = 0; i < rows_A; ++i) {
+        for (int j = 0; j < rows_A; ++j) {
             for (int k = 0; k < cols_A; ++k) {
-                sum += b[k] * (A[k][j] - C[k][j]);
+#pragma omp atomic
+                result[i][j] += (A[i][k] - C[i][k]) * b[k] * b[j];
             }
-            result[i][j] = sum;
         }
     }
 
@@ -90,15 +88,12 @@ int main() {
     cout << "\nВектор b:\n";
     printVector(b);
 
-    // Последовательное вычисление
-    Matrix result_sequential = calculateExpression(b, A, C);
-    cout << "\nРезультат (последовательно):\n";
-    printMatrix(result_sequential);
+    // Вычисление выражения
+    Matrix result = calculateExpression(b, A, C);
 
-    // Параллельное вычисление
-    Matrix result_parallel = calculateExpression(b, A, C);
-    cout << "\nРезультат (параллельно):\n";
-    printMatrix(result_parallel);
+    // Вывод результата
+    cout << "\nРезультат выражения b * (A - C) * b^T:\n";
+    printMatrix(result);
 
     return 0;
 }
